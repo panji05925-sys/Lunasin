@@ -850,13 +850,16 @@ interface ItemPinjamanProps {
   pinjaman: Pinjaman;
   sekarang: Date;
   onBayar: (id: number) => void;
+  onHapus: (id: number) => void;
 }
 
 function ItemPinjaman({
   pinjaman,
   sekarang,
   onBayar,
+  onHapus,
 }: Readonly<ItemPinjamanProps>) {
+  const [konfirmasiHapus, setKonfirmasiHapus] = useState(false);
   const isAktif = pinjaman.status === "aktif";
   const estimasi = hitungEstimasiUtang(pinjaman);
   const tenggat = hitungTenggat(pinjaman, sekarang);
@@ -965,6 +968,41 @@ function ItemPinjaman({
             className="bg-teal-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm active:scale-95 whitespace-nowrap"
           >
             Bayar {formatRupiah(tagihan)}
+          </button>
+        </div>
+      )}
+
+      {konfirmasiHapus ? (
+        <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl space-y-2">
+          <p className="text-xs font-bold text-rose-700">
+            Hapus pinjaman &quot;{pinjaman.nama}&quot;?
+          </p>
+          <p className="text-[11px] text-rose-700">
+            Pinjaman ini hilang dari daftar dan portofolio. Transaksi yang sudah
+            tercatat tidak ikut terhapus.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setKonfirmasiHapus(false)}
+              className="flex-1 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold"
+            >
+              Batal
+            </button>
+            <button
+              onClick={() => onHapus(pinjaman.id)}
+              className="flex-1 py-2 rounded-lg bg-rose-600 text-white text-xs font-bold active:scale-95"
+            >
+              Ya, hapus
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-gray-100 pt-3 text-center">
+          <button
+            onClick={() => setKonfirmasiHapus(true)}
+            className="text-xs font-bold text-rose-600 hover:underline"
+          >
+            🗑️ Hapus pinjaman
           </button>
         </div>
       )}
@@ -1132,6 +1170,7 @@ interface TabPinjamanProps {
   onViewChange: (v: PinjamanView) => void;
   onTambah: () => void;
   onBayar: (id: number) => void;
+  onHapus: (id: number) => void;
 }
 
 function TabPinjaman({
@@ -1142,6 +1181,7 @@ function TabPinjaman({
   onViewChange,
   onTambah,
   onBayar,
+  onHapus,
 }: Readonly<TabPinjamanProps>) {
   const pilihan: { key: PinjamanView; label: string }[] = [
     { key: "daftar", label: "Daftar" },
@@ -1194,6 +1234,7 @@ function TabPinjaman({
               pinjaman={p}
               sekarang={sekarang}
               onBayar={onBayar}
+              onHapus={onHapus}
             />
           ))}
         </div>
@@ -2145,6 +2186,11 @@ function DashboardIsi({
     );
   };
 
+  // Hapus pinjaman (mis. salah input atau hanya coba-coba simulasi)
+  const handleHapusPinjaman = (pinjamanId: number) => {
+    setPinjamanList((prev) => prev.filter((p) => p.id !== pinjamanId));
+  };
+
   // --- KALKULASI DYNAMIC ---
   const totalCicilanAktif = pinjamanList
     .filter((p) => p.status === "aktif")
@@ -2207,6 +2253,7 @@ function DashboardIsi({
             onViewChange={setPinjamanView}
             onTambah={() => setShowAddPinjamanModal(true)}
             onBayar={handleBayarCicilan}
+            onHapus={handleHapusPinjaman}
           />
         )}
 
