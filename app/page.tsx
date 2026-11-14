@@ -30,7 +30,7 @@ interface Pinjaman {
   totalUtang: number;
   sisaUtang: number;
   cicilanPerBulan: number;
-  bungaPersen: number; // bunga per tahun (%)
+  bungaPersen: number; // bunga per bulan (%)
   tanggalJatuhTempo: number; // tanggal tagihan tiap bulan (1-31)
   bulanTagihan: string; // bulan tagihan berikutnya, format "YYYY-MM"
   kaliDibayar: number;
@@ -143,9 +143,11 @@ const sesuaikanPinjaman = (p: Pinjaman): Pinjaman => ({
   bungaTerbayar: p.bungaTerbayar ?? 0,
 });
 
-// Bunga bulanan dari bunga tahunan (sistem bunga menurun / efektif)
-const bungaBulanan = (sisa: number, bungaPersen: number) =>
-  Math.round((sisa * bungaPersen) / 1200);
+// Bunga per bulan dihitung dari sisa utang (bunga menurun)
+const bungaBulanan = (sisa: number, bungaPersenPerBulan: number) =>
+  Math.round((sisa * bungaPersenPerBulan) / 100);
+
+const formatBunga = (n: number) => String(Number(n.toFixed(3)));
 
 // Nominal yang harus dibayar bulan ini (cicilan terakhir bisa lebih kecil)
 const hitungTagihan = (p: Pinjaman) =>
@@ -460,6 +462,7 @@ function LayarAuth() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tampilSandi, setTampilSandi] = useState(false);
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -569,17 +572,30 @@ function LayarAuth() {
             onChange={(e) => setEmail(e.target.value)}
             className={AUTH_INPUT_CLASS}
           />
-          <input
-            type="password"
-            placeholder="Kata sandi (min. 6 karakter)"
-            required
-            minLength={6}
-            autoComplete={isDaftar ? "new-password" : "current-password"}
-            aria-label="Kata sandi"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={AUTH_INPUT_CLASS}
-          />
+          <div className="relative">
+            <input
+              type={tampilSandi ? "text" : "password"}
+              placeholder="Kata sandi (min. 6 karakter)"
+              required
+              minLength={6}
+              autoComplete={isDaftar ? "new-password" : "current-password"}
+              aria-label="Kata sandi"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={`${AUTH_INPUT_CLASS} pr-28`}
+            />
+            <button
+              type="button"
+              onClick={() => setTampilSandi((prev) => !prev)}
+              aria-label={
+                tampilSandi ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"
+              }
+              aria-pressed={tampilSandi}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-teal-700"
+            >
+              {tampilSandi ? "🙈 Sembunyikan" : "👁️ Tampilkan"}
+            </button>
+          </div>
         </div>
 
         <button
@@ -905,7 +921,7 @@ function ItemPinjaman({
             label="Bunga"
             nilai={
               pinjaman.bungaPersen > 0
-                ? `${pinjaman.bungaPersen}% / tahun`
+                ? `${formatBunga(pinjaman.bungaPersen)}% / bulan`
                 : "Tanpa bunga"
             }
           />
@@ -1056,8 +1072,8 @@ function PortofolioUtang({
       {bungaTertinggi && (
         <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl text-[11px] text-amber-700">
           Bunga tertinggi: <b>{bungaTertinggi.nama}</b> (
-          {bungaTertinggi.bungaPersen}% / tahun). Melunasi pinjaman ini lebih
-          dulu biasanya menghemat bunga paling banyak.
+          {formatBunga(bungaTertinggi.bungaPersen)}% / bulan). Melunasi pinjaman
+          ini lebih dulu biasanya menghemat bunga paling banyak.
         </div>
       )}
 
@@ -1091,7 +1107,7 @@ function PortofolioUtang({
                 </div>
                 <p className="text-[10px] text-gray-400">
                   {p.bungaPersen > 0
-                    ? `Bunga ${p.bungaPersen}%/thn`
+                    ? `Bunga ${formatBunga(p.bungaPersen)}%/bln`
                     : "Tanpa bunga"}{" "}
                   •{" "}
                   {e.kaliBayarLagi === null
@@ -1198,6 +1214,19 @@ function PanelNotifikasi({
 }: Readonly<{ peringatan: PeringatanTenggat[]; onLihat: () => void }>) {
   if (peringatan.length === 0) return null;
 
+  const kirimWhatsApp = () => {
+    const baris = peringatan.map(
+      ({ pinjaman, tenggat, nominal }) =>
+        `• ${pinjaman.nama} (${formatRupiah(nominal)}): ${teksTenggat(tenggat)}`,
+    );
+    const teks = ["🔔 Pengingat tenggat utang (Lunasin)", ...baris].join("\n");
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(teks)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
       <div className="flex justify-between items-center">
@@ -1227,6 +1256,12 @@ function PanelNotifikasi({
           </div>
         );
       })}
+      <button
+        onClick={kirimWhatsApp}
+        className="w-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-bold py-2 rounded-xl active:scale-95"
+      >
+        💬 Kirim pengingat ke WhatsApp
+      </button>
     </div>
   );
 }
@@ -1870,14 +1905,14 @@ function ModalTambahPinjaman({ onSubmit, onTutup }: Readonly<ModalProps>) {
               htmlFor="pinj-bunga"
               className="block text-[11px] text-gray-500 mb-1"
             >
-              Bunga per tahun (%)
+              Bunga per bulan (%)
             </label>
             <input
               id="pinj-bunga"
               name="bunga"
               type="number"
               min={0}
-              step="0.1"
+              step="0.01"
               defaultValue={0}
               className={INPUT_CLASS}
             />
@@ -1902,8 +1937,7 @@ function ModalTambahPinjaman({ onSubmit, onTutup }: Readonly<ModalProps>) {
           </div>
         </div>
         <p className="text-[10px] text-gray-400">
-          Bunga dihitung menurun (dari sisa utang) setiap bulan. Isi 0 jika
-          tanpa bunga.
+          Bunga dihitung dari sisa utang setiap bulan. Isi 0 jika tanpa bunga.
         </p>
         <TombolModal onTutup={onTutup} />
       </form>
