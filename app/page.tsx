@@ -22,6 +22,9 @@ interface Transaksi {
   tipe: TipeTransaksi;
   nominal: number;
   tanggal: string;
+  pinjamanId?: number; // terisi jika transaksi ini adalah pembayaran cicilan
+  status?: "aktif" | "dibatalkan"; // kosong dianggap aktif
+  dibatalkanPada?: string; // waktu pembatalan (ISO)
 }
 
 interface Pinjaman {
@@ -259,6 +262,17 @@ const perbaruiPinjamanSetelahBayar = (
       status: sisaBaru <= 0 ? "lunas" : "aktif",
     };
   });
+
+// Transaksi pembayaran milik sebuah pinjaman.
+// Transaksi lama (sebelum ada pinjamanId) dikenali dari judulnya.
+const transaksiPembayaran = (list: Transaksi[], p: Pinjaman): Transaksi[] =>
+  list.filter(
+    (t) =>
+      t.tipe === "pengeluaran" &&
+      t.status !== "dibatalkan" &&
+      (t.pinjamanId === p.id ||
+        (t.pinjamanId === undefined && t.judul === `Bayar Cicilan ${p.nama}`)),
+  );
 
 // ==========================================
 // SUPABASE: LOGIN & PENYIMPANAN DATA DI SERVER
@@ -742,48 +756,178 @@ function KartuSaldo({
 // ==========================================
 // KOMPONEN: ITEM & DAFTAR TRANSAKSI
 // ==========================================
-function ItemTransaksi({ trx }: Readonly<{ trx: Transaksi }>) {
+type AksiTransaksi = "batalkan" | "hapus" | null;
+
+interface ItemTransaksiProps {
+  trx: Transaksi;
+  terkunci: boolean; // pembayaran cicilan: dibatalkan lewat hapus pinjaman
+  onBatalkan: (id: number) => void;
+  onPulihkan: (id: number) => void;
+  onHapusPermanen: (id: number) => void;
+}
+
+function ItemTransaksi({
+  trx,
+  terkunci,
+  onBatalkan,
+  onPulihkan,
+  onHapusPermanen,
+}: Readonly<ItemTransaksiProps>) {
+  const [aksi, setAksi] = useState<AksiTransaksi>(null);
   const isMasuk = trx.tipe === "pemasukan";
+  const dibatalkan = trx.status === "dibatalkan";
+
+  let warnaNominal = isMasuk ? "text-emerald-600" : "text-rose-600";
+  if (dibatalkan) warnaNominal = "text-gray-400 line-through";
+
   return (
-    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow">
-      <div className="flex items-center gap-4">
-        <div
-          className={`w-12 h-12 rounded-xl flex justify-center items-center text-xl font-bold ${
-            isMasuk
-              ? "bg-emerald-50 text-emerald-600"
-              : "bg-rose-50 text-rose-600"
-          }`}
-        >
-          {isMasuk ? "💰" : "💳"}
+    <div
+      className={`bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3 transition-shadow ${
+        dibatalkan ? "opacity-75" : "hover:shadow-md"
+      }`}
+    >
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <div
+            className={`w-12 h-12 rounded-xl flex justify-center items-center text-xl font-bold ${
+              isMasuk
+                ? "bg-emerald-50 text-emerald-600"
+                : "bg-rose-50 text-rose-600"
+            }`}
+          >
+            {isMasuk ? "💰" : "💳"}
+          </div>
+          <div>
+            <p
+              className={`text-sm font-bold ${
+                dibatalkan ? "text-gray-400 line-through" : "text-gray-800"
+              }`}
+            >
+              {trx.judul}
+            </p>
+            <p className="text-[11px] text-gray-400">
+              {trx.kategori} • {formatTanggal(trx.tanggal)}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-bold text-gray-800">{trx.judul}</p>
-          <p className="text-[11px] text-gray-400">
-            {trx.kategori} • {formatTanggal(trx.tanggal)}
-          </p>
+        <div className="text-right">
+          <span className={`text-sm font-bold ${warnaNominal}`}>
+            {isMasuk ? "+" : "-"}
+            {formatRupiah(trx.nominal)}
+          </span>
+          {dibatalkan && (
+            <p className="mt-1 text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md inline-block">
+              DIBATALKAN
+            </p>
+          )}
         </div>
       </div>
-      <span
-        className={`text-sm font-bold ${
-          isMasuk ? "text-emerald-600" : "text-rose-600"
-        }`}
-      >
-        {isMasuk ? "+" : "-"}
-        {formatRupiah(trx.nominal)}
-      </span>
+
+      {dibatalkan && trx.dibatalkanPada && (
+        <p className="text-[10px] text-gray-400">
+          Dibatalkan pada {formatTanggal(trx.dibatalkanPada)}. Tidak dihitung di
+          saldo dan laporan.
+        </p>
+      )}
+
+      {terkunci && (
+        <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">
+          Pembayaran cicilan. Untuk membatalkannya, hapus pinjamannya di tab
+          Pinjaman.
+        </p>
+      )}
+
+      {!terkunci && aksi === null && (
+        <div className="border-t border-gray-100 pt-2 flex gap-4">
+          {dibatalkan ? (
+            <>
+              <button
+                onClick={() => onPulihkan(trx.id)}
+                className="text-[11px] font-bold text-teal-700 hover:underline"
+              >
+                ↩️ Pulihkan
+              </button>
+              <button
+                onClick={() => setAksi("hapus")}
+                className="text-[11px] font-bold text-rose-600 hover:underline"
+              >
+                🗑️ Hapus permanen
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setAksi("batalkan")}
+              className="text-[11px] font-bold text-rose-600 hover:underline"
+            >
+              🚫 Batalkan transaksi
+            </button>
+          )}
+        </div>
+      )}
+
+      {!terkunci && aksi !== null && (
+        <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl space-y-2">
+          <p className="text-xs font-bold text-rose-700">
+            {aksi === "batalkan"
+              ? `Batalkan "${trx.judul}"?`
+              : `Hapus permanen "${trx.judul}"?`}
+          </p>
+          <p className="text-[11px] text-rose-700">
+            {aksi === "batalkan"
+              ? "Transaksi ditandai Dibatalkan dan tetap ada di riwayat. Saldo dan laporan dihitung ulang tanpa transaksi ini. Kamu bisa memulihkannya kapan saja."
+              : "Transaksi ini hilang dari riwayat dan tidak bisa dikembalikan. Saldo tidak berubah karena transaksi sudah dibatalkan."}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAksi(null)}
+              className="flex-1 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold"
+            >
+              Kembali
+            </button>
+            <button
+              onClick={() => {
+                if (aksi === "batalkan") onBatalkan(trx.id);
+                else onHapusPermanen(trx.id);
+                setAksi(null);
+              }}
+              className="flex-1 py-2 rounded-lg bg-rose-600 text-white text-xs font-bold active:scale-95"
+            >
+              {aksi === "batalkan" ? "Ya, batalkan" : "Ya, hapus"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+interface DaftarTransaksiProps {
+  transaksiList: Transaksi[];
+  pinjamanList: Pinjaman[];
+  onBatalkan: (id: number) => void;
+  onPulihkan: (id: number) => void;
+  onHapusPermanen: (id: number) => void;
+}
+
 function DaftarTransaksi({
   transaksiList,
-}: Readonly<{ transaksiList: Transaksi[] }>) {
+  pinjamanList,
+  onBatalkan,
+  onPulihkan,
+  onHapusPermanen,
+}: Readonly<DaftarTransaksiProps>) {
+  const jumlahAktif = transaksiList.filter(
+    (t) => t.status !== "dibatalkan",
+  ).length;
+  const jumlahBatal = transaksiList.length - jumlahAktif;
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
         <h3 className="font-bold text-gray-800">Semua Transaksi</h3>
         <span className="text-xs text-teal-600 font-bold">
-          {transaksiList.length} Catatan
+          {jumlahAktif} Catatan
+          {jumlahBatal > 0 ? ` • ${jumlahBatal} dibatalkan` : ""}
         </span>
       </div>
 
@@ -796,7 +940,16 @@ function DaftarTransaksi({
       ) : (
         <div className="space-y-3">
           {transaksiList.map((trx) => (
-            <ItemTransaksi key={trx.id} trx={trx} />
+            <ItemTransaksi
+              key={trx.id}
+              trx={trx}
+              terkunci={pinjamanList.some(
+                (p) => transaksiPembayaran([trx], p).length > 0,
+              )}
+              onBatalkan={onBatalkan}
+              onPulihkan={onPulihkan}
+              onHapusPermanen={onHapusPermanen}
+            />
           ))}
         </div>
       )}
@@ -849,6 +1002,7 @@ function StatKecil({
 interface ItemPinjamanProps {
   pinjaman: Pinjaman;
   sekarang: Date;
+  transaksiList: Transaksi[];
   onBayar: (id: number) => void;
   onHapus: (id: number) => void;
 }
@@ -856,10 +1010,13 @@ interface ItemPinjamanProps {
 function ItemPinjaman({
   pinjaman,
   sekarang,
+  transaksiList,
   onBayar,
   onHapus,
 }: Readonly<ItemPinjamanProps>) {
   const [konfirmasiHapus, setKonfirmasiHapus] = useState(false);
+  const pembayaran = transaksiPembayaran(transaksiList, pinjaman);
+  const totalPembayaran = pembayaran.reduce((a, t) => a + t.nominal, 0);
   const isAktif = pinjaman.status === "aktif";
   const estimasi = hitungEstimasiUtang(pinjaman);
   const tenggat = hitungTenggat(pinjaman, sekarang);
@@ -977,10 +1134,18 @@ function ItemPinjaman({
           <p className="text-xs font-bold text-rose-700">
             Hapus pinjaman &quot;{pinjaman.nama}&quot;?
           </p>
-          <p className="text-[11px] text-rose-700">
-            Pinjaman ini hilang dari daftar dan portofolio. Transaksi yang sudah
-            tercatat tidak ikut terhapus.
-          </p>
+          {pembayaran.length > 0 ? (
+            <p className="text-[11px] text-rose-700">
+              Pinjaman ini hilang dari daftar dan portofolio.{" "}
+              {pembayaran.length} transaksi pembayaran ikut terhapus, dan saldo
+              bertambah <b>{formatRupiah(totalPembayaran)}</b>.
+            </p>
+          ) : (
+            <p className="text-[11px] text-rose-700">
+              Pinjaman ini hilang dari daftar dan portofolio. Belum ada
+              pembayaran, jadi saldo tidak berubah.
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => setKonfirmasiHapus(false)}
@@ -1166,6 +1331,7 @@ interface TabPinjamanProps {
   pinjamanList: Pinjaman[];
   pemasukan: number;
   sekarang: Date;
+  transaksiList: Transaksi[];
   view: PinjamanView;
   onViewChange: (v: PinjamanView) => void;
   onTambah: () => void;
@@ -1177,6 +1343,7 @@ function TabPinjaman({
   pinjamanList,
   pemasukan,
   sekarang,
+  transaksiList,
   view,
   onViewChange,
   onTambah,
@@ -1233,6 +1400,7 @@ function TabPinjaman({
               key={p.id}
               pinjaman={p}
               sekarang={sekarang}
+              transaksiList={transaksiList}
               onBayar={onBayar}
               onHapus={onHapus}
             />
@@ -2177,6 +2345,7 @@ function DashboardIsi({
         tipe: "pengeluaran",
         nominal: bayar,
         tanggal: new Date().toISOString(),
+        pinjamanId: target.id,
       },
       ...prev,
     ]);
@@ -2186,8 +2355,72 @@ function DashboardIsi({
     );
   };
 
-  // Hapus pinjaman (mis. salah input atau hanya coba-coba simulasi)
+  // --- BATALKAN / PULIHKAN / HAPUS TRANSAKSI ---
+  // arah -1 = menarik efek transaksi dari saldo, 1 = menerapkannya kembali
+  const terapkanEfekTransaksi = (trx: Transaksi, arah: 1 | -1) => {
+    const delta = trx.nominal * arah;
+    if (trx.tipe === "pemasukan") {
+      setSaldo((prev) => prev + delta);
+      setPemasukan((prev) => prev + delta);
+    } else {
+      setSaldo((prev) => prev - delta);
+      setPengeluaran((prev) => prev + delta);
+    }
+  };
+
+  const handleBatalkanTransaksi = (trxId: number) => {
+    const trx = transaksiList.find((t) => t.id === trxId);
+    if (!trx || trx.status === "dibatalkan") return;
+
+    terapkanEfekTransaksi(trx, -1);
+    setTransaksiList((prev) =>
+      prev.map((t) =>
+        t.id === trxId
+          ? {
+              ...t,
+              status: "dibatalkan",
+              dibatalkanPada: new Date().toISOString(),
+            }
+          : t,
+      ),
+    );
+  };
+
+  const handlePulihkanTransaksi = (trxId: number) => {
+    const trx = transaksiList.find((t) => t.id === trxId);
+    if (trx?.status !== "dibatalkan") return;
+
+    terapkanEfekTransaksi(trx, 1);
+    setTransaksiList((prev) =>
+      prev.map((t) =>
+        t.id === trxId
+          ? { ...t, status: "aktif", dibatalkanPada: undefined }
+          : t,
+      ),
+    );
+  };
+
+  // Hanya transaksi yang sudah dibatalkan yang boleh dihapus permanen
+  const handleHapusPermanenTransaksi = (trxId: number) => {
+    const trx = transaksiList.find((t) => t.id === trxId);
+    if (trx?.status !== "dibatalkan") return;
+    setTransaksiList((prev) => prev.filter((t) => t.id !== trxId));
+  };
+
+  // Hapus pinjaman beserta transaksi pembayarannya, saldo dikembalikan
   const handleHapusPinjaman = (pinjamanId: number) => {
+    const target = pinjamanList.find((p) => p.id === pinjamanId);
+    if (!target) return;
+
+    const pembayaran = transaksiPembayaran(transaksiList, target);
+    const idPembayaran = new Set(pembayaran.map((t) => t.id));
+    const totalPembayaran = pembayaran.reduce((a, t) => a + t.nominal, 0);
+
+    if (totalPembayaran > 0) {
+      setSaldo((prev) => prev + totalPembayaran);
+      setPengeluaran((prev) => Math.max(prev - totalPembayaran, 0));
+      setTransaksiList((prev) => prev.filter((t) => !idPembayaran.has(t.id)));
+    }
     setPinjamanList((prev) => prev.filter((p) => p.id !== pinjamanId));
   };
 
@@ -2240,7 +2473,13 @@ function DashboardIsi({
               pemasukan={pemasukan}
               pengeluaran={pengeluaran}
             />
-            <DaftarTransaksi transaksiList={transaksiList} />
+            <DaftarTransaksi
+              transaksiList={transaksiList}
+              pinjamanList={pinjamanList}
+              onBatalkan={handleBatalkanTransaksi}
+              onPulihkan={handlePulihkanTransaksi}
+              onHapusPermanen={handleHapusPermanenTransaksi}
+            />
           </div>
         )}
 
@@ -2249,6 +2488,7 @@ function DashboardIsi({
             pinjamanList={pinjamanList}
             pemasukan={pemasukan}
             sekarang={sekarang}
+            transaksiList={transaksiList}
             view={pinjamanView}
             onViewChange={setPinjamanView}
             onTambah={() => setShowAddPinjamanModal(true)}
