@@ -66,7 +66,8 @@ const NAV_ITEMS: { key: TabType; label: string; icon: string }[] = [
 const INPUT_CLASS =
   "w-full p-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-teal-500 outline-none";
 
-const BATAS_ANGGARAN = 5000000;
+// Aturan 50/30/20: 50% pemasukan untuk kebutuhan pokok (batas anggaran bulanan)
+const PERSEN_ANGGARAN = 50;
 
 // ==========================================
 // FUNGSI BANTUAN
@@ -1235,7 +1236,7 @@ function PanelNotifikasi({
 // ==========================================
 interface TabLaporanProps {
   pengeluaran: number;
-  persentaseAnggaran: string;
+  pemasukan: number;
   dtiDropdown: DropdownDTI;
   onDtiChange: (v: DropdownDTI) => void;
   dtiRatio: string;
@@ -1246,7 +1247,7 @@ interface TabLaporanProps {
 
 function TabLaporan({
   pengeluaran,
-  persentaseAnggaran,
+  pemasukan,
   dtiDropdown,
   onDtiChange,
   dtiRatio,
@@ -1254,8 +1255,25 @@ function TabLaporan({
   totalCicilanAktif,
   simulasiPemasukan,
 }: Readonly<TabLaporanProps>) {
-  const warnaBar =
-    Number(persentaseAnggaran) >= 90 ? "bg-rose-500" : "bg-teal-500";
+  // Batas anggaran = 50% dari pemasukan (gaji / uang saku / omzet)
+  const batasAnggaran = Math.round((pemasukan * PERSEN_ANGGARAN) / 100);
+  const persenRiil =
+    batasAnggaran > 0 ? (pengeluaran / batasAnggaran) * 100 : 0;
+  const lebarBar = Math.min(persenRiil, 100).toFixed(0);
+  const sisaAnggaran = batasAnggaran - pengeluaran;
+
+  let warnaBar = "bg-teal-500";
+  let teksStatus = `Aman. Sisa anggaran ${formatRupiah(sisaAnggaran)}.`;
+  let warnaStatus = "text-emerald-600";
+  if (persenRiil >= 100) {
+    warnaBar = "bg-rose-500";
+    warnaStatus = "text-rose-600";
+    teksStatus = `Anggaran habis. Pengeluaran melebihi batas sebesar ${formatRupiah(-sisaAnggaran)}.`;
+  } else if (persenRiil >= 80) {
+    warnaBar = "bg-amber-500";
+    warnaStatus = "text-amber-600";
+    teksStatus = `Hampir habis. Sisa anggaran ${formatRupiah(sisaAnggaran)}.`;
+  }
 
   return (
     <div className="space-y-6">
@@ -1266,17 +1284,34 @@ function TabLaporan({
         <div className="flex justify-between text-sm">
           <span className="font-bold text-gray-800">Anggaran Bulanan</span>
           <span className="text-gray-500 text-xs">
-            {formatRupiah(pengeluaran)} / {formatRupiah(BATAS_ANGGARAN)}
+            {formatRupiah(pengeluaran)} / {formatRupiah(batasAnggaran)}
           </span>
         </div>
-        <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${warnaBar}`}
-            style={{ width: `${persentaseAnggaran}%` }}
-          />
-        </div>
-        <p className="text-[11px] text-gray-400">
-          {persentaseAnggaran}% anggaran terpakai
+
+        {batasAnggaran > 0 ? (
+          <>
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${warnaBar}`}
+                style={{ width: `${lebarBar}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-gray-400">
+              {persenRiil.toFixed(0)}% anggaran terpakai
+            </p>
+            <p className={`text-xs font-bold ${warnaStatus}`}>{teksStatus}</p>
+          </>
+        ) : (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 p-3 rounded-xl">
+            Catat pemasukan bulanan Anda (gaji, uang saku, atau omzet) agar
+            batas anggaran dihitung otomatis.
+          </p>
+        )}
+
+        <p className="text-[10px] text-gray-400">
+          Batas anggaran = {PERSEN_ANGGARAN}% dari total pemasukan (
+          {formatRupiah(pemasukan)}), mengikuti aturan 50/30/20 untuk kebutuhan
+          pokok.
         </p>
       </div>
 
@@ -2085,10 +2120,6 @@ function DashboardIsi({
     simulasiPemasukan > 0 ? (totalCicilanAktif / simulasiPemasukan) * 100 : 0;
   const dtiRatio = dtiNumber.toFixed(1);
   const dtiStatus = getDtiStatus(dtiNumber);
-  const persentaseAnggaran = Math.min(
-    (pengeluaran / BATAS_ANGGARAN) * 100,
-    100,
-  ).toFixed(0);
 
   // ==========================================
   // RENDER
@@ -2148,7 +2179,7 @@ function DashboardIsi({
         {activeTab === "laporan" && (
           <TabLaporan
             pengeluaran={pengeluaran}
-            persentaseAnggaran={persentaseAnggaran}
+            pemasukan={pemasukan}
             dtiDropdown={dtiDropdown}
             onDtiChange={setDtiDropdown}
             dtiRatio={dtiRatio}
